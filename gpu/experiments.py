@@ -10,6 +10,7 @@ from ipypb import track
 import argparse
 
 import torch
+from sklearn.preprocessing import normalize
 
 from samplings import give_ns, generate_data
 
@@ -87,7 +88,10 @@ def evaluate_epoch(datas, epoch, device, a_torch, b_torch, optimizer, sheduler, 
     b = b_torch.cpu().data.numpy()
     c = a_torch.cpu().data.numpy()
     print ("count hr", flush = True)
-    hit3, hit5, hit10, mrr = hr(datas.valid_filters[:10000], datas.valid_triples[:10000], a, b, c, [1, 3, 10])
+    a_norm = normalize(a, axis=1)
+    b_norm = normalize(b, axis=1)
+    c_norm = normalize(c, axis=1)
+    hit3, hit5, hit10, mrr = hr(datas.valid_filters[:1000], datas.valid_triples[:1000], a_norm, b_norm, c_norm, [1, 3, 10])
     if (hit10 > trainer.best_hit_10):
         trainer.best_hit_10 = hit10
     print (hit3, hit5, hit10, mrr, flush = True)
@@ -111,13 +115,14 @@ def evaluate_epoch(datas, epoch, device, a_torch, b_torch, optimizer, sheduler, 
         b_torch.grad[b_elems, :] = g_b
         a_torch.grad[c_elems, :] = g_c
         optimizer.step()
+        optimizer.zero_grad()
         a_torch.grad = torch.zeros(a_torch.shape, device = device)
         b_torch.grad = torch.zeros(b_torch.shape, device = device)
         trainer.err_arr[trainer.it] = np.mean(err_list)
         if show_iter and i%500 == 0:
             print("Iter: ", trainer.it, "; Error: ", np.mean(np.array(err_list)), flush = True)
         try:
-            check_early_stop(trainer.err_arr[trainer.it], trainer.previous_best_loss, margin=trainer.err_arr[trainer.it]%20, max_attempts=10)
+            check_early_stop(trainer.err_arr[trainer.it], trainer.previous_best_loss, margin=trainer.err_arr[trainer.it]%20, max_attempts=10000)
             if (trainer.previous_best_loss > trainer.err_arr[trainer.it]):
                 trainer.previous_best_loss = trainer.err_arr[trainer.it]
         except StopIteration: # early stopping condition met
@@ -136,7 +141,7 @@ def evaluate_epoch(datas, epoch, device, a_torch, b_torch, optimizer, sheduler, 
         
         # early stopping by hit@10
     try:
-        check_early_stop_score(hit10, trainer.best_hit_10, margin=0.01, max_attempts=10)
+        check_early_stop_score(hit10, trainer.best_hit_10, margin=0.01, max_attempts=100)
     except StopIteration: # early stopping condition met
         print ("early_stoping score", flush = True)
         raise StopIteration
@@ -146,7 +151,7 @@ def evaluate_epoch(datas, epoch, device, a_torch, b_torch, optimizer, sheduler, 
     if (hit10 > trainer.best_hit_10):
         trainer.best_hit_10 = hit10
         np.save(trainer.path_for_save + 'gpu_a.npz', a_torch.cpu().data.numpy())
-        np.save(trainer.path_for_save + '/notebook/Relations_Learning/gpu/gpu_b.npz', b_torch.cpu().data.numpy())
-        np.save(trainer.path_for_save + '/notebook/Relations_Learning/gpu/gpu_c.npz', a_torch.cpu().data.numpy())
+        np.save(trainer.path_for_save + 'gpu_b.npz', b_torch.cpu().data.numpy())
+        np.save(trainer.path_for_save + 'gpu_c.npz', a_torch.cpu().data.numpy())
             
-    return a_torch, b_torch
+    return 0

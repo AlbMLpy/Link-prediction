@@ -10,12 +10,13 @@ from ipypb import track
 import argparse
 
 import torch
+from sklearn.preprocessing import normalize
 
 from t_alg import mttcrp, mttcrp1, get_elem_deriv_tensor, factors_to_tensor, gcp_grad, multi_ind_to_indices, indices_to_multi_ind
 
 from samplings import give_ns, generate_data
 
-from elementwise_grads import bernoulli_logit_loss, bernoulli_logit_loss_grad
+from elementwise_grads import bernoulli_logit_loss, bernoulli_logit_loss_grad, bernoulli_loss, bernoulli_loss_grad
 
 from general_functions1 import sqrt_err_relative, check_coo_tensor, gen_coo_tensor
 from general_functions1 import create_filter, hr
@@ -47,7 +48,7 @@ def static_vars(**kwargs):
 
 
 @static_vars(fail_count=0)
-def check_early_stop(target_score, previous_best, margin=0, max_attempts=10):
+def check_early_stop(target_score, previous_best, margin=0, max_attempts=1000):
     if (previous_best > target_score):
         previous_best = target_score
     if (margin >= 0) and (target_score > previous_best + margin):
@@ -59,7 +60,7 @@ def check_early_stop(target_score, previous_best, margin=0, max_attempts=10):
         raise StopIteration
 
 @static_vars(fail_count_score=0)        
-def check_early_stop_score(target_score, previous_best, margin=0, max_attempts=3):
+def check_early_stop_score(target_score, previous_best, margin=0, max_attempts=3000):
     if (previous_best > target_score):
         previous_best = target_score
     if (margin >= 0) and (target_score < previous_best + margin):
@@ -128,8 +129,8 @@ def main():
     all_triples = train_valid_triples + test_triples
 
 
-    print ("loaded1", flush = True)
-    num_epoch = 20
+    print ("loaded1_", flush = True)
+    num_epoch = 50
     rank = dim 
     lr = 1e-2
     seed = 13 
@@ -155,13 +156,12 @@ def main():
     shape = data_shape
     loss_function = bernoulli_logit_loss
     loss_function_grad = bernoulli_logit_loss_grad
-
     from torch.nn.init import xavier_normal_
     from torch import optim
 
     device=torch.device("cuda:4")
 
-    num_epoch = 600
+    num_epoch = 200
 
     random_state = np.random.seed(seed)
 
@@ -188,23 +188,36 @@ def main():
     dim_emb = 200
     num_rel = 237
 
-    a_torch = torch.empty((num_ent, dim_emb), requires_grad = True, device = device)
-    xavier_normal_(a_torch)
+    #a_torch = torch.empty((num_ent, dim_emb), requires_grad = True, device = device)
+    #xavier_normal_(a_torch)
+    #a_torch.grad = torch.zeros(a_torch.shape, device = device)
+
+    #b_torch = torch.empty((num_rel, dim_emb), requires_grad = True, device = device)
+    #xavier_normal_(b_torch)
+    #b_torch.grad = torch.zeros(b_torch.shape, device = device)
+    
+    a = np.load('/notebook/Relations_Learning/gpu/gpu_a.npz.npy')
+    b = np.load('/notebook/Relations_Learning/gpu/gpu_b.npz.npy')
+    #a_torch = torch.empty((shape[0], rank), requires_grad = True, device = device)
+    #xavier_normal_(a_torch)
+    a_torch = torch.tensor(a, requires_grad = True, device = device)
     a_torch.grad = torch.zeros(a_torch.shape, device = device)
 
-    b_torch = torch.empty((num_rel, dim_emb), requires_grad = True, device = device)
-    xavier_normal_(b_torch)
+    #b_torch = torch.empty((shape[1], rank), requires_grad = True, device = device)
+    #xavier_normal_(b_torch)
+    b_torch = torch.tensor(b, requires_grad = True, device = device)
     b_torch.grad = torch.zeros(b_torch.shape, device = device)
-
-    optimizer = optim.SGD([a_torch, b_torch], lr=1e-2, momentum=0.1, nesterov = True)
-    #optimizer = optim.Adam([a_torch, b_torch], lr=1e-3)
+    
+    
+    #optimizer = optim.SGD([a_torch, b_torch], lr=1e-2, momentum = 0.8, nesterov = True)
+    optimizer = optim.Adam([a_torch, b_torch], lr=1e-3)
     scheduler = StepLR(optimizer, step_size=2, gamma=0.5)
 
     show_iter = True
     start = timer()
     for epoch in range(num_epoch):
         try:
-            a_torch, b_torch = evaluate_epoch(data_s, epoch, device, a_torch, b_torch, optimizer, scheduler, batch_size, trainer, show_iter = True)
+            evaluate_epoch(data_s, epoch, device, a_torch, b_torch, optimizer, scheduler, batch_size, trainer, show_iter = True)
         except StopIteration: # early stopping condition met
             break
             print ("early_stoping loss", flush = True)
@@ -215,12 +228,15 @@ def main():
         b = b_torch.cpu().data.numpy()
         c = a_torch.cpu().data.numpy()
         print ("count hr")
-        hit3, hit5, hit10, mrr = hr(valid_filter[:10000], valid_triples[:10000], a, b, c, [1, 3, 10])
+        a_norm = normalize(a, axis=1)
+        b_norm = normalize(b, axis=1)
+        c_norm = normalize(c, axis=1)
+        hit3, hit5, hit10, mrr = hr(valid_filter[:5000], valid_triples[:5000], a_norm, b_norm, c_norm, [1, 3, 10], iter_show=True, freq=300)
         print (hit3, hit5, hit10, mrr, flush = True)
         
         # early stopping by hit@10
         try:
-            check_early_stop_score(hit10, best_hit_10, margin=0.01, max_attempts=10)
+            check_early_stop_score(hit10, best_hit_10, margin=0.01, max_attempts=1000)
         except StopIteration: # early stopping condition met
                 break
                 print ("early_stoping score", flush = True)
