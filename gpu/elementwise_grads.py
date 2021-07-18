@@ -2,15 +2,6 @@ import numpy as np
 import pandas as pd
 import torch
 
-
-#@jit(nopython=True)
-def gaussian_loss(x_vals, m_vals):
-    return (x_vals - m_vals)**2
-
-#@jit(nopython=True)
-def gaussian_loss_grad(x_vals, m_vals):
-    return -2 * (x_vals - m_vals)
-
 def log1pexp(x):
     # more stable version of log(1 + exp(x))
     return torch.where(x < 50, torch.log1p(torch.exp(x)), x)
