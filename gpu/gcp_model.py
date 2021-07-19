@@ -130,7 +130,7 @@ def main():
     random_state = np.random.seed(seed)
 
     # specify property of data
-    batch_size = 56
+    batch_size = 30
     init_mind_set = set(indices_to_multi_ind(coo_tensor, shape))
     coo_ns = np.empty((how_many * len(init_mind_set) + vals.size, 3), dtype=np.int64)
     vals_ns = np.empty((how_many * len(init_mind_set) + vals.size,), dtype=np.float64)
@@ -154,8 +154,8 @@ def main():
 
     model = FoxIE(rank=rank, shape=data_shape, given_loss=bernoulli_logit_loss, given_loss_grad=bernoulli_logit_loss_grad, device=device)
     model.init()
-    #optimizer = optim.SGD([a_torch, b_torch], lr=1e-2, momentum = 0.8, nesterov = True)
-    optimizer = optim.Adam([model.a_torch, model.b_torch], lr=5e-4)
+    optimizer = optim.SGD([model.a_torch, model.b_torch], lr=1e-4)
+    #optimizer = optim.Adam([model.a_torch, model.b_torch], lr=5e-4)
     scheduler = StepLR(optimizer, step_size=2, gamma=0.5)
 
     show_iter = True
@@ -170,7 +170,7 @@ def main():
             raise StopIteration
 
 
-        hit3, hit5, hit10, mrr = model.evaluate()
+        hit3, hit5, hit10, mrr = model.evaluate(data_s)
         print (hit3, hit5, hit10, mrr, flush = True)
         
     # early stopping by hit@10

@@ -87,7 +87,7 @@ class FoxIE(torch.nn.Module):
         self.a_torch.grad[c_elems, :] = g_c
         return 0
     
-    def evaluate(self):
+    def evaluate(self, datas):
         a = self.a_torch.cpu().data.numpy()
         b = self.b_torch.cpu().data.numpy()
         c = self.a_torch.cpu().data.numpy()
