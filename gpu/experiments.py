@@ -60,7 +60,7 @@ class data_storage():
         self.shape = shape
         self.how_many = how_many
         self.valid_triples = valid_triples
-        self.valid_filters = valid_filters
+        self.filter = valid_filters
         
 class Trainer():
     def __init__(self, best_hit_10, previous_best_loss, err_arr, it, l2 = 0, path_for_save = "/notebook/Relations_Learning/gpu/"):
@@ -96,7 +96,7 @@ def run_epoch(datas, epoch, device, model, optimizer, sheduler, batch_size, trai
         optimizer.zero_grad()
        
         trainer.err_arr[trainer.it] = np.mean(model.err_list)
-        if show_iter and i%500 == 0:
+        if show_iter and i%2000 == 0:
             print("Iter: ", trainer.it, "; Error: ", np.mean(np.array(model.err_list)), flush = True)
         try:
             check_early_stop(trainer.err_arr[trainer.it], trainer.previous_best_loss, margin=trainer.err_arr[trainer.it]%20, max_attempts=10000)
@@ -113,10 +113,11 @@ def run_epoch(datas, epoch, device, model, optimizer, sheduler, batch_size, trai
     b = model.b_torch.cpu().data.numpy()
     c = model.a_torch.cpu().data.numpy()
     print ("count hr", flush = True)
-    hit3, hit5, hit10, mrr = model.evaluate(datas)
+    hit_rate = model.evaluate(datas)
+    hit3, hit5, hit10 = hit_rate[0], hit_rate[1], hit_rate[2]
     if (hit10 > trainer.best_hit_10):
         trainer.best_hit_10 = hit10
-    print (hit3, hit5, hit10, mrr, flush = True)
+    print (hit3, hit5, hit10, flush = True)
         # early stopping by hit@10
     try:
         check_early_stop_score(hit10, trainer.best_hit_10, margin=0.01, max_attempts=100)
