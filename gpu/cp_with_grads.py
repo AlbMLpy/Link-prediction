@@ -32,8 +32,8 @@ def gcp_grad(coo, val, shape, a, b, l2, loss_function, loss_function_grad, devic
     
     # Add L2 regularization
     if l2 != 0:
-        g_a += l2 * a[coo[0], :]
-        g_b += l2 * b[coo[1], :]
-        g_c += l2 * c[coo[2], :]
+        g_a += l2 * a[coo[:,0], :]
+        g_b += l2 * b[coo[:,1], :]
+        g_c += l2 * a[coo[:,2], :]
     
     return loss, g_a, g_b, g_c

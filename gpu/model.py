@@ -5,17 +5,18 @@ from torch.nn.init import xavier_normal_
 from t_alg import mttcrp, mttcrp1, get_elem_deriv_tensor, factors_to_tensor, gcp_grad, multi_ind_to_indices, indices_to_multi_ind
 from elementwise_grads import bernoulli_logit_loss, bernoulli_logit_loss_grad
 
-from general_functions1 import create_filter, hr
+#from general_functions1 import create_filter, hr
+import evaluation_functions as ef
 
 from sklearn.preprocessing import normalize
 
 
 class FoxIE(torch.nn.Module):
-    def __init__(self, rank, shape, given_loss, given_loss_grad, device, l2 = 0, **kwargs):
+    def __init__(self, rank, shape, given_loss, given_loss_grad, device, l2=0, **kwargs):
         super(FoxIE, self).__init__()
         self.loss_function = given_loss
         self.loss_function_grad = given_loss_grad
-        self.l2 = 0
+        self.l2 = l2
         self.a_torch = torch.empty((shape[0], rank), requires_grad = True, device = device)
         self.b_torch = torch.empty((shape[1], rank), requires_grad = True, device = device)
         self.device = device
@@ -68,9 +69,9 @@ class FoxIE(torch.nn.Module):
 
         # Add L2 regularization
         if l2 != 0:
-            g_a += l2 * a[coo[0], :]
-            g_b += l2 * b[coo[1], :]
-            g_c += l2 * c[coo[2], :]
+            g_a += l2 * a[coo[:, 0], :]
+            g_b += l2 * b[coo[:, 1], :]
+            g_c += l2 * a[coo[:, 2], :]
 
         return loss, g_a, g_b, g_c
 
@@ -87,7 +88,7 @@ class FoxIE(torch.nn.Module):
         self.a_torch.grad[c_elems, :] = g_c
         return 0
     
-    def evaluate(self, datas):
+    def evaluate(self, datas, how_many_samples=10000):
         a = self.a_torch.cpu().data.numpy()
         b = self.b_torch.cpu().data.numpy()
         c = self.a_torch.cpu().data.numpy()
@@ -97,5 +98,11 @@ class FoxIE(torch.nn.Module):
         c_norm = normalize(c, axis=1)
         
         print ("count hr", flush = True)
-        hit3, hit5, hit10, mrr = hr(datas.valid_filters[:10000], datas.valid_triples[:10000], a_norm, b_norm, c_norm, [1, 3, 10])
-        return (hit3, hit5, hit10, mrr)
+        hr_k = (3, 5, 10)
+        hr_result = ef.hr(
+            datas.filter,
+            datas.valid_triples[:how_many_samples],
+            a_norm, b_norm, c_norm,
+            hr_k,
+        )
+        return hr_result
