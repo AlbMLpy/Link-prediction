@@ -113,7 +113,7 @@ def run_epoch(datas, epoch, device, model, optimizer, sheduler, batch_size, trai
     b = model.b_torch.cpu().data.numpy()
     c = model.a_torch.cpu().data.numpy()
     print ("count hr", flush = True)
-    hit3, hit5, hit10, mrr = hr(datas.valid_filters[:10000], datas.valid_triples[:10000], model.a_norm, model.b_norm, model.c_norm, [1, 3, 10])
+    hit3, hit5, hit10, mrr = model.evaluate(datas)
     if (hit10 > trainer.best_hit_10):
         trainer.best_hit_10 = hit10
     print (hit3, hit5, hit10, mrr, flush = True)

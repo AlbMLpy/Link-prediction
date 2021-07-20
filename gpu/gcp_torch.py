@@ -24,7 +24,7 @@ from general_functions1 import create_filter, hr
 from decimal import Decimal
 from timeit import default_timer as timer
 
-from experiments import data_storage, Trainer, evaluate_epoch
+from experiments import data_storage, Trainer, run_epoch
 
 #import CP_ALS3.CP_ALS3 as cp
 
@@ -147,17 +147,9 @@ def main():
     
     print (data_shape, flush = True)
     
-    
-    
-    loss_bse = torch.nn.BCELoss()
-
     coo_tensor = coords
     vals = values
     shape = data_shape
-    loss_function = bernoulli_logit_loss
-    loss_function_grad = bernoulli_logit_loss_grad
-    from torch.nn.init import xavier_normal_
-    from torch import optim
 
     device=torch.device("cuda:4")
 
@@ -180,7 +172,7 @@ def main():
     previous_best_loss = 100000.0
     best_hit_10 = 0.0
     # specify training class
-    trainer = Trainer(best_hit_10, previous_best_loss, err_arr, it, l2, loss_function = bernoulli_logit_loss, loss_function_grad = bernoulli_logit_loss_grad)
+    trainer = Trainer(best_hit_10, previous_best_loss, err_arr, it)
     
     start = timer()
 
@@ -196,42 +188,28 @@ def main():
     #xavier_normal_(b_torch)
     #b_torch.grad = torch.zeros(b_torch.shape, device = device)
     
-    a = np.load('/notebook/Relations_Learning/gpu/gpu_a.npz.npy')
-    b = np.load('/notebook/Relations_Learning/gpu/gpu_b.npz.npy')
-    #a_torch = torch.empty((shape[0], rank), requires_grad = True, device = device)
-    #xavier_normal_(a_torch)
-    a_torch = torch.tensor(a, requires_grad = True, device = device)
-    a_torch.grad = torch.zeros(a_torch.shape, device = device)
-
-    #b_torch = torch.empty((shape[1], rank), requires_grad = True, device = device)
-    #xavier_normal_(b_torch)
-    b_torch = torch.tensor(b, requires_grad = True, device = device)
-    b_torch.grad = torch.zeros(b_torch.shape, device = device)
+    #a = np.load('/notebook/Relations_Learning/gpu/gpu_a.npz.npy')
+    #b = np.load('/notebook/Relations_Learning/gpu/gpu_b.npz.npy')
+    
+    model = FoxIE(rank=rank, shape=data_shape, given_loss=bernoulli_logit_loss, given_loss_grad=bernoulli_logit_loss_grad, device=device)
     
     
     #optimizer = optim.SGD([a_torch, b_torch], lr=1e-2, momentum = 0.8, nesterov = True)
-    optimizer = optim.Adam([a_torch, b_torch], lr=1e-3)
+    optimizer = optim.Adam([model.a_torch, model.b_torch], lr=5e-4)
     scheduler = StepLR(optimizer, step_size=2, gamma=0.5)
 
     show_iter = True
     start = timer()
     for epoch in range(num_epoch):
         try:
-            evaluate_epoch(data_s, epoch, device, a_torch, b_torch, optimizer, scheduler, batch_size, trainer, show_iter = True)
+            run_epoch(data_s, epoch, device, model, optimizer, scheduler, batch_size, trainer, show_iter = True)
         except StopIteration: # early stopping condition met
             break
             print ("early_stoping loss", flush = True)
             raise StopIteration
             
 
-        a = a_torch.cpu().data.numpy()
-        b = b_torch.cpu().data.numpy()
-        c = a_torch.cpu().data.numpy()
-        print ("count hr")
-        a_norm = normalize(a, axis=1)
-        b_norm = normalize(b, axis=1)
-        c_norm = normalize(c, axis=1)
-        hit3, hit5, hit10, mrr = hr(valid_filter[:5000], valid_triples[:5000], a_norm, b_norm, c_norm, [1, 3, 10], iter_show=True, freq=300)
+        hit3, hit5, hit10, mrr = model.evaluate()
         print (hit3, hit5, hit10, mrr, flush = True)
         
         # early stopping by hit@10
@@ -250,12 +228,7 @@ def main():
     
         end = timer()
         print (end - start)
-        #np.save('/notebook/Relations_Learning/gpu/gpu_a.npz', a_torch.cpu().data.numpy())
-        #np.save('/notebook/Relations_Learning/gpu/gpu_b.npz', b_torch.cpu().data.numpy())
-        #np.save('/notebook/Relations_Learning/gpu/gpu_c.npz', a_torch.cpu().data.numpy())
-
-    
-    
+        
 if __name__ == "__main__":
     main()
 
