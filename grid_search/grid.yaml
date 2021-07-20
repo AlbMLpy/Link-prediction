@@ -1,0 +1,26 @@
+entity: sayankotor
+project: FOxIE
+program: grid_search_step.py
+method: bayes
+metric:
+  goal: minimize
+  name: hit10
+parameters:
+  n_epoch:
+    values: [200]
+  batch_size:
+    values: [16, 24, 32 ,46, 54, 64, 128, 256, 314, 416, 512]
+  lr:
+    values: [0.00001, 0.00002, 0.00005, 0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05]
+  scheduler_step:
+    values: [10, 12, 14, 16, 18, 20]
+  scheduler_gamma:
+    values: [1, 0.3, 0.4, 0.5, 0.7, 0.8]
+  l2:
+    values: [0.0]
+  opt_type:
+    values: ['adam', 'adamw', 'sdg']
+  momentum:
+    values: [0.8, 0.85, 0.9, 0.95, 0.99]
+  nesterov:
+    values: [True, False]

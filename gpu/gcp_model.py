@@ -2,6 +2,9 @@ import numpy as np
 import pandas as pd
 from numba import jit
 import matplotlib.pyplot as plt
+from torch.nn.init import xavier_normal_
+from torch import optim
+
 from torch.optim.lr_scheduler import StepLR
 
 import pickle
@@ -25,6 +28,8 @@ from decimal import Decimal
 from timeit import default_timer as timer
 
 from experiments import data_storage, Trainer, run_epoch
+
+from model import FoxIE
 
 #import CP_ALS3.CP_ALS3 as cp
 
@@ -70,39 +75,6 @@ def check_early_stop_score(target_score, previous_best, margin=0, max_attempts=3
     if check_early_stop_score.fail_count_score >= max_attempts:
         print('Interrupted due to early stopping scoring condition.', check_early_stop_score.fail_count_score, flush = True)
         raise StopIteration
-
-def gcp_grad(coo, val, shape, a, b, l2, loss_function, loss_function_grad, device):
-    """
-        GCP loss function and gradient calculation.
-        All the tensors have the same coordinate set: coo_tensor.
-    """
-
-    # Construct sparse kruskal tensor
-    kruskal_val = torch.sum((a[coo[:,0], :] * b[coo[:,1], :] * a[coo[:,2], :]),1)
-    #factors_to_tensor(coo_tensor, vals, a, b, c)
-    
-    # Calculate mean loss on known entries
-    loss = loss_function(val, kruskal_val)
-    # Compute the elementwise derivative tensor
-    deriv_tensor_val = loss_function_grad(val, kruskal_val)
-    
-    #print ("in qcp_grad in deriv_tensor_val ", deriv_tensor_val)
-    # Calculate gradients w.r.t. a, b, c factor matrices
-    g_a = mttcrp1(coo, deriv_tensor_val, shape, 0, b, a, device)
-    g_b = mttcrp1(coo, deriv_tensor_val, shape, 1, a, a, device)
-    g_c = mttcrp1(coo, deriv_tensor_val, shape, 2, a, b, device)
-    
-    #print ("\n\n")
-    
-    
-    # Add L2 regularization
-    if l2 != 0:
-        g_a += l2 * a[coo[0], :]
-        g_b += l2 * b[coo[1], :]
-        g_c += l2 * c[coo[2], :]
-    
-    return loss, g_a, g_b, g_c
-
 
 
 def main():
@@ -158,7 +130,7 @@ def main():
     random_state = np.random.seed(seed)
 
     # specify property of data
-    batch_size = 56
+    batch_size = 30
     init_mind_set = set(indices_to_multi_ind(coo_tensor, shape))
     coo_ns = np.empty((how_many * len(init_mind_set) + vals.size, 3), dtype=np.int64)
     vals_ns = np.empty((how_many * len(init_mind_set) + vals.size,), dtype=np.float64)
@@ -176,30 +148,19 @@ def main():
     
     start = timer()
 
-    num_ent = 14541
-    dim_emb = 200
-    num_rel = 237
+    #num_ent = 14541
+    #dim_emb = 200
+    #num_rel = 237
 
-    #a_torch = torch.empty((num_ent, dim_emb), requires_grad = True, device = device)
-    #xavier_normal_(a_torch)
-    #a_torch.grad = torch.zeros(a_torch.shape, device = device)
-
-    #b_torch = torch.empty((num_rel, dim_emb), requires_grad = True, device = device)
-    #xavier_normal_(b_torch)
-    #b_torch.grad = torch.zeros(b_torch.shape, device = device)
-    
-    #a = np.load('/notebook/Relations_Learning/gpu/gpu_a.npz.npy')
-    #b = np.load('/notebook/Relations_Learning/gpu/gpu_b.npz.npy')
-    
     model = FoxIE(rank=rank, shape=data_shape, given_loss=bernoulli_logit_loss, given_loss_grad=bernoulli_logit_loss_grad, device=device)
-    
-    
-    #optimizer = optim.SGD([a_torch, b_torch], lr=1e-2, momentum = 0.8, nesterov = True)
-    optimizer = optim.Adam([model.a_torch, model.b_torch], lr=5e-4)
+    model.init()
+    optimizer = optim.SGD([model.a_torch, model.b_torch], lr=1e-4)
+    #optimizer = optim.Adam([model.a_torch, model.b_torch], lr=5e-4)
     scheduler = StepLR(optimizer, step_size=2, gamma=0.5)
 
     show_iter = True
     start = timer()
+    
     for epoch in range(num_epoch):
         try:
             run_epoch(data_s, epoch, device, model, optimizer, scheduler, batch_size, trainer, show_iter = True)
@@ -207,17 +168,19 @@ def main():
             break
             print ("early_stoping loss", flush = True)
             raise StopIteration
-            
 
-        hit3, hit5, hit10, mrr = model.evaluate()
+
+        hit3, hit5, hit10, mrr = model.evaluate(data_s)
         print (hit3, hit5, hit10, mrr, flush = True)
         
-        # early stopping by hit@10
+    # early stopping by hit@10
         try:
             check_early_stop_score(hit10, best_hit_10, margin=0.01, max_attempts=1000)
         except StopIteration: # early stopping condition met
-                break
-                print ("early_stoping score", flush = True)
+            break
+            print ("early_stoping score", flush = True)
+        
+
         
         # if hit@10 grows update checkpoint
         if (hit10 > best_hit_10):

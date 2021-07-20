@@ -10,6 +10,7 @@ from ipypb import track
 import argparse
 
 import torch
+from sklearn.preprocessing import normalize
 
 from samplings import give_ns, generate_data
 
@@ -62,17 +63,15 @@ class data_storage():
         self.valid_filters = valid_filters
         
 class Trainer():
-    def __init__(self, best_hit_10, previous_best_loss, err_arr, it, l2, loss_function, loss_function_grad, path_for_save = "/notebook/Relations_Learning/gpu/"):
+    def __init__(self, best_hit_10, previous_best_loss, err_arr, it, l2 = 0, path_for_save = "/notebook/Relations_Learning/gpu/"):
         self.best_hit_10 = best_hit_10
         self.previous_best_loss = previous_best_loss
         self.err_arr = err_arr
         self.it = it
         self.l2 = l2
-        self.loss_function_grad = loss_function_grad
-        self.loss_function = loss_function
         self.path_for_save = path_for_save
 
-def evaluate_epoch(datas, epoch, device, a_torch, b_torch, optimizer, sheduler, batch_size, trainer, show_iter = True):
+def run_epoch(datas, epoch, device, model, optimizer, sheduler, batch_size, trainer, show_iter = True):
     coo_ns, vals_ns = generate_data(datas.coo_tensor, datas.vals, datas.mind_set, datas.shape, datas.how_many, epoch)
     coo_ns = torch.tensor(coo_ns, device = device)
     vals_ns = torch.tensor(vals_ns, device = device)
@@ -81,43 +80,26 @@ def evaluate_epoch(datas, epoch, device, a_torch, b_torch, optimizer, sheduler, 
     vals_ns = vals_ns[shuffler]
     #idxs = np.random.permutation(vals_ns.shape[0])
     print (vals_ns.shape[0], batch_size, vals_ns.shape[0]//batch_size)
-    err_list = []
-
-    a = a_torch.cpu().data.numpy()
-    b = b_torch.cpu().data.numpy()
-    c = a_torch.cpu().data.numpy()
-    print ("count hr", flush = True)
-    hit3, hit5, hit10, mrr = hr(datas.valid_filters[:10000], datas.valid_triples[:10000], a, b, c, [1, 3, 10])
-    if (hit10 > trainer.best_hit_10):
-        trainer.best_hit_10 = hit10
-    print (hit3, hit5, hit10, mrr, flush = True)
-
         
     for i in range(vals_ns.shape[0]//batch_size):
         # Get loss and gradients per sample
         # print ("coo_ns[i], vals_ns[i]", coo_ns[i], vals_ns[i])
         end = min(vals_ns.shape[0] - 1, (i+1)*batch_size)
-        loss, g_a, g_b, g_c = gcp_grad(
-            coo_ns[i*batch_size : end], vals_ns[i*batch_size : end], datas.shape, a_torch, b_torch,
-            trainer.l2, trainer.loss_function, trainer.loss_function_grad, device
-        )
-        err_list.append(loss.cpu().detach().numpy().mean())
-
+        
         a_elems = coo_ns[i*batch_size : end, 0]
         b_elems = coo_ns[i*batch_size : end, 1]
         c_elems = coo_ns[i*batch_size : end, 2]
-
-        a_torch.grad[a_elems, :] = g_a
-        b_torch.grad[b_elems, :] = g_b
-        a_torch.grad[c_elems, :] = g_c
+        
+        model.forward(coo_ns[i*batch_size : end], vals_ns[i*batch_size : end], a_elems, b_elems, c_elems)
+        
         optimizer.step()
-        a_torch.grad = torch.zeros(a_torch.shape, device = device)
-        b_torch.grad = torch.zeros(b_torch.shape, device = device)
-        trainer.err_arr[trainer.it] = np.mean(err_list)
+        optimizer.zero_grad()
+       
+        trainer.err_arr[trainer.it] = np.mean(model.err_list)
         if show_iter and i%500 == 0:
-            print("Iter: ", trainer.it, "; Error: ", np.mean(np.array(err_list)), flush = True)
+            print("Iter: ", trainer.it, "; Error: ", np.mean(np.array(model.err_list)), flush = True)
         try:
-            check_early_stop(trainer.err_arr[trainer.it], trainer.previous_best_loss, margin=trainer.err_arr[trainer.it]%20, max_attempts=10)
+            check_early_stop(trainer.err_arr[trainer.it], trainer.previous_best_loss, margin=trainer.err_arr[trainer.it]%20, max_attempts=10000)
             if (trainer.previous_best_loss > trainer.err_arr[trainer.it]):
                 trainer.previous_best_loss = trainer.err_arr[trainer.it]
         except StopIteration: # early stopping condition met
@@ -127,16 +109,17 @@ def evaluate_epoch(datas, epoch, device, a_torch, b_torch, optimizer, sheduler, 
         trainer.it += 1
     
     sheduler.step()
-    a = a_torch.cpu().data.numpy()
-    b = b_torch.cpu().data.numpy()
-    c = a_torch.cpu().data.numpy()
-    print ("count hr")
-    hit3, hit5, hit10, mrr = hr(datas.valid_filters[:10000], datas.valid_triples[:10000], a, b, c, [1, 3, 10])
+    a = model.a_torch.cpu().data.numpy()
+    b = model.b_torch.cpu().data.numpy()
+    c = model.a_torch.cpu().data.numpy()
+    print ("count hr", flush = True)
+    hit3, hit5, hit10, mrr = model.evaluate(datas)
+    if (hit10 > trainer.best_hit_10):
+        trainer.best_hit_10 = hit10
     print (hit3, hit5, hit10, mrr, flush = True)
-        
         # early stopping by hit@10
     try:
-        check_early_stop_score(hit10, trainer.best_hit_10, margin=0.01, max_attempts=10)
+        check_early_stop_score(hit10, trainer.best_hit_10, margin=0.01, max_attempts=100)
     except StopIteration: # early stopping condition met
         print ("early_stoping score", flush = True)
         raise StopIteration
@@ -146,7 +129,7 @@ def evaluate_epoch(datas, epoch, device, a_torch, b_torch, optimizer, sheduler, 
     if (hit10 > trainer.best_hit_10):
         trainer.best_hit_10 = hit10
         np.save(trainer.path_for_save + 'gpu_a.npz', a_torch.cpu().data.numpy())
-        np.save(trainer.path_for_save + '/notebook/Relations_Learning/gpu/gpu_b.npz', b_torch.cpu().data.numpy())
-        np.save(trainer.path_for_save + '/notebook/Relations_Learning/gpu/gpu_c.npz', a_torch.cpu().data.numpy())
+        np.save(trainer.path_for_save + 'gpu_b.npz', b_torch.cpu().data.numpy())
+        np.save(trainer.path_for_save + 'gpu_c.npz', a_torch.cpu().data.numpy())
             
-    return a_torch, b_torch
+    return 0
