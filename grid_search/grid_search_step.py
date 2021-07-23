@@ -7,6 +7,7 @@ sys.path.insert(1, '/notebook/Relations_Learning/gpu/')
 
 import torch
 import datetime
+import math
 
 import argparse
 import wandb
@@ -78,9 +79,12 @@ def static_vars(**kwargs):
 
 @static_vars(fail_count=0)
 def check_early_stop(target_score, previous_best, margin=0, max_attempts=1000):
+    
     if (previous_best > target_score):
         previous_best = target_score
     if (margin >= 0) and (target_score > previous_best + margin):
+        check_early_stop.fail_count += 1
+    elif (math.isnan(target_score) or math.isinf(target_score)):
         check_early_stop.fail_count += 1
     else:
         check_early_stop.fail_count = 0
@@ -90,9 +94,9 @@ def check_early_stop(target_score, previous_best, margin=0, max_attempts=1000):
 
 @static_vars(fail_count_score=0)        
 def check_early_stop_score(target_score, previous_best, margin=0, max_attempts=3000):
-    if (previous_best > target_score):
+    if (previous_best < target_score):
         previous_best = target_score
-    if (margin >= 0) and (target_score < previous_best + margin):
+    if (margin >= 0) and (target_score + margin < previous_best):
         check_early_stop_score.fail_count_score += 1
     else:
         check_early_stop_score.fail_count_score = 0
@@ -110,6 +114,7 @@ parser.add_argument("--batch_size", type=int, default=32)
 parser.add_argument("--opt_type", type=str, default='adam')
 
 parser.add_argument('--dim', type = int, default = 200)
+parser.add_argument('--how_many', type = int, default = 200)
 parser.add_argument('--l2', type = float, default = 0.0)
 parser.add_argument('--scheduler_step', type=int, default=2, help="Scheduler step size")
 parser.add_argument("--scheduler_gamma", type=float, default = 0.5, help="scheduler_gamma")
@@ -119,7 +124,7 @@ parser.add_argument('--out_file', type=str, default='/notebook/Relations_Learnin
 
 args = parser.parse_args()
 
-device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     
 output_file = cur_dir + "/output_files/" + str(datetime.datetime.now())+".txt" # files for text output
 #output_folder = args.out_folder # folder where best factors are stored
@@ -164,7 +169,7 @@ batch_size = args.batch_size
     
     
 seed = 13 
-how_many = 2
+how_many = args.how_many
 l2 = args.l2
     
 values = [1] * len(train_triples)
@@ -189,7 +194,7 @@ init_mind_set = set(indices_to_multi_ind(coo_tensor, shape))
 coo_ns = np.empty((how_many * len(init_mind_set) + vals.size, 3), dtype=np.int64)
 vals_ns = np.empty((how_many * len(init_mind_set) + vals.size,), dtype=np.float64)
     
-data_s = data_storage(sparse_coords = coords, sparse_vals =values, mind_set = init_mind_set, shape=data_shape, how_many=2, valid_filters = valid_filter, valid_triples = valid_triples)
+data_s = data_storage(sparse_coords = coords, sparse_vals =values, mind_set = init_mind_set, shape=data_shape, how_many=args.how_many, valid_filters = valid_filter, valid_triples = valid_triples)
 
 # specify property of training
 err_arr = []
@@ -207,18 +212,18 @@ model = FoxIE(rank=rank, shape=data_shape, given_loss=bernoulli_logit_loss, give
 model.init()
 
 
-score_margin_ = 0.01
-score_attempts_ = 15
+score_margin_ = 0.0
+score_attempts_ = 2
 optimizer = optim.Adam([model.a_torch, model.b_torch], lr = args.lr)
 
 if (args.opt_type == 'sdg'):
-    score_margin_ = 0.0001
-    score_attempts_ = 25
+    score_margin_ = 0.0
+    score_attempts_ = 3
     optimizer = optim.SGD([model.a_torch, model.b_torch], lr = args.lr, momentum = args.momentum)
           
 elif (args.opt_type == 'adamw'):
-    score_margin_ = 0.01
-    score_attempts_ = 15
+    score_margin_ = 0.0
+    score_attempts_ = 2
     optimizer = optim.AdamW([model.a_torch, model.b_torch], lr = args.lr)
           
 scheduler = StepLR(optimizer, step_size=args.scheduler_step, gamma=args.scheduler_gamma)
@@ -234,17 +239,19 @@ for epoch in range(num_epoch):
         print ("early_stoping loss", flush = True)
         raise StopIteration
 
+    if (epoch%5 == 0):
+        hit3, hit5, hit10, mrr = model.evaluate(data_s)
 
-    hit3, hit5, hit10, mrr = model.evaluate(data_s)
-
-    metrics = {"hit3": hit3,
-                "hit5": hit5,
-                "hit10": hit10,
-                "mrr":mrr,
-                "loss":np.mean(trainer.err_arr[len(trainer.err_arr) - 5:])
-              }
-    wandb.log(metrics)
-    print (hit3, hit5, hit10, mrr, flush = True)
+        metrics = {"hit3": hit3,
+                    "hit5": hit5,
+                    "hit10": hit10,
+                    "mrr":mrr
+                  }
+        wandb.log(metrics)
+        print (hit3, hit5, hit10, mrr, flush = True)
+    
+    loss_metric = {"loss":np.mean(trainer.err_arr[len(trainer.err_arr) - 5:])}
+    wandb.log(loss_metric)
 
     file_out.write('%s %s %s %s \n' % (hit3, hit5, hit10, mrr))
     file_out.flush()
@@ -257,11 +264,12 @@ for epoch in range(num_epoch):
         file_out.write("\n")
         file_out.write("In %s epoch; time %s \n" % (epoch, time))
         file_out.write("early_stoping score")
-        file_out.write("Best scores ", best_tuple)
+        file_out.write("Best scores %s %s %s %s \n" % (best_tuple[0], best_tuple[1], best_tuple[2], best_tuple[3]))
         file_out.flush()
         file_out.close()
-        break
         print ("early_stoping score", flush = True)
+        wandb.summary.update({'epoch': epoch, **metrics})
+        break
 
     # if hit@10 grows update checkpoint
     if (hit10 > best_hit_10):
