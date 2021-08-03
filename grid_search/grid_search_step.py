@@ -65,7 +65,7 @@ import adam_grid  # python file with default hyperparameters
 hyperparameters = adam_grid
 
 # Pass them wandb.init
-wandb.init(project = 'FOxIE', entity = 'sayankotor')
+wandb.init(project = 'FOxIE2', entity = 'foxie')
 # Access all hyperparameter values through wandb.config
 #config = wandb.config
 
@@ -97,12 +97,14 @@ def check_early_stop_score(target_score, previous_best, margin=0, max_attempts=3
     if (previous_best < target_score):
         previous_best = target_score
     if (margin >= 0) and (target_score + margin < previous_best):
+        print ("fail_count ", check_early_stop_score.fail_count_score)
         check_early_stop_score.fail_count_score += 1
+        print ("fail_count ", check_early_stop_score.fail_count_score)
     else:
         check_early_stop_score.fail_count_score = 0
     if check_early_stop_score.fail_count_score >= max_attempts:
         print('Interrupted due to early stopping scoring condition.', check_early_stop_score.fail_count_score, flush = True)
-        raise StopIteration
+        raise StopIteration        
 
 
 parser = argparse.ArgumentParser()
@@ -124,7 +126,7 @@ parser.add_argument('--out_file', type=str, default='/notebook/Relations_Learnin
 
 args = parser.parse_args()
 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
     
 output_file = cur_dir + "/output_files/" + str(datetime.datetime.now())+".txt" # files for text output
 #output_folder = args.out_folder # folder where best factors are stored
@@ -213,17 +215,17 @@ model.init()
 
 
 score_margin_ = 0.0
-score_attempts_ = 2
+score_attempts_ = 4
 optimizer = optim.Adam([model.a_torch, model.b_torch], lr = args.lr)
 
 if (args.opt_type == 'sdg'):
     score_margin_ = 0.0
-    score_attempts_ = 3
+    score_attempts_ = 5
     optimizer = optim.SGD([model.a_torch, model.b_torch], lr = args.lr, momentum = args.momentum)
           
 elif (args.opt_type == 'adamw'):
     score_margin_ = 0.0
-    score_attempts_ = 2
+    score_attempts_ = 4
     optimizer = optim.AdamW([model.a_torch, model.b_torch], lr = args.lr)
           
 scheduler = StepLR(optimizer, step_size=args.scheduler_step, gamma=args.scheduler_gamma)
@@ -240,7 +242,8 @@ for epoch in range(num_epoch):
         raise StopIteration
 
     if (epoch%5 == 0):
-        hit3, hit5, hit10, mrr = model.evaluate(data_s)
+        hit3, hit5, hit10 = model.evaluate(data_s)
+        mrr = 0
 
         metrics = {"hit3": hit3,
                     "hit5": hit5,
@@ -249,27 +252,27 @@ for epoch in range(num_epoch):
                   }
         wandb.log(metrics)
         print (hit3, hit5, hit10, mrr, flush = True)
+        
+        try:
+            check_early_stop_score(hit10, best_hit_10, margin=score_margin_, max_attempts=score_attempts_)
+        except StopIteration: # early stopping condition met
+            end = timer()
+            time = end - start
+            file_out.write("\n")
+            file_out.write("In %s epoch; time %s \n" % (epoch, time))
+            file_out.write("early_stoping score")
+            file_out.write("Best scores %s %s %s %s \n" % (best_tuple[0], best_tuple[1], best_tuple[2], best_tuple[3]))
+            file_out.flush()
+            print ("early_stoping score", flush = True)
+            wandb.summary.update({'epoch': epoch, **metrics})
+            break
     
-    loss_metric = {"loss":np.mean(trainer.err_arr[len(trainer.err_arr) - 5:])}
+    loss_metric = {"loss":np.mean(trainer.err_arr[len(trainer.err_arr) - 1])}
     wandb.log(loss_metric)
 
     file_out.write('%s %s %s %s \n' % (hit3, hit5, hit10, mrr))
     file_out.flush()
         # early stopping by hit@10
-    try:
-        check_early_stop_score(hit10, best_hit_10, margin=score_margin_, max_attempts=score_attempts_)
-    except StopIteration: # early stopping condition met
-        end = timer()
-        time = end - start
-        file_out.write("\n")
-        file_out.write("In %s epoch; time %s \n" % (epoch, time))
-        file_out.write("early_stoping score")
-        file_out.write("Best scores %s %s %s %s \n" % (best_tuple[0], best_tuple[1], best_tuple[2], best_tuple[3]))
-        file_out.flush()
-        file_out.close()
-        print ("early_stoping score", flush = True)
-        wandb.summary.update({'epoch': epoch, **metrics})
-        break
 
     # if hit@10 grows update checkpoint
     if (hit10 > best_hit_10):

@@ -9,6 +9,8 @@ def create_filter(all_triples):
         ft[all_triples[i][:2]].append(all_triples[i][2]) 
     return ft
 
+
+
 def hr(ftr, test_triples, a, b, c,
        how_many=[1, 3, 10], iter_show=False, freq=1000):
     """ Calculate HR@[how_many] """
@@ -23,11 +25,14 @@ def hr(ftr, test_triples, a, b, c,
     candidate_values = np.dot(temp, c.T)
     
     iteration = 0
+    mrr = 0.0
     for j, entity in enumerate(test_triples):
         p, q, r = entity
         
         tmp = candidate_values[j][r]
-        candidate_values[j][ftr[(p, q)]] = 0.0
+    
+        candidate_values[j][ftr[j]] = 0.0
+        #candidate_values[j][ftr[p][q]] = 0.0
         candidate_values[j][r] = tmp
         
         top = np.argpartition(candidate_values[j], -how_many[-1])[-how_many[-1]:]
@@ -35,11 +40,14 @@ def hr(ftr, test_triples, a, b, c,
         
         for i, h in enumerate(how_many):
             if r in top[:h]:
-                hit[i] += 1.0   
+                hit[i] += 1.0  
+                
+        #ind = top.index(r)
+        #mrr += 1 / (1 + ind)  
         
         iteration += 1
         if iter_show:
             if iteration % freq == 0:
                 print(f"Iter: {iteration}\n")
-    hit = hit / total        
+    hit = hit / total  
     return hit

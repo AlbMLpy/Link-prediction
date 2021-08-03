@@ -6,17 +6,17 @@ from t_alg import mttcrp, mttcrp1, get_elem_deriv_tensor, factors_to_tensor, gcp
 from elementwise_grads import bernoulli_logit_loss, bernoulli_logit_loss_grad
 
 #from general_functions1 import create_filter, hr
-import evaluation_functions as ef
+from evaluation_functions import create_filter, hr
 
 from sklearn.preprocessing import normalize
 
 
 class FoxIE(torch.nn.Module):
-    def __init__(self, rank, shape, given_loss, given_loss_grad, device, l2=0, **kwargs):
+    def __init__(self, rank, shape, given_loss, given_loss_grad, device, l2 = 0, **kwargs):
         super(FoxIE, self).__init__()
         self.loss_function = given_loss
         self.loss_function_grad = given_loss_grad
-        self.l2 = l2
+        self.l2 = 0
         self.a_torch = torch.empty((shape[0], rank), requires_grad = True, device = device)
         self.b_torch = torch.empty((shape[1], rank), requires_grad = True, device = device)
         self.device = device
@@ -88,7 +88,7 @@ class FoxIE(torch.nn.Module):
         self.a_torch.grad[c_elems, :] = g_c
         return 0
     
-    def evaluate(self, datas, how_many_samples=10000):
+    def evaluate(self, datas):
         a = self.a_torch.cpu().data.numpy()
         b = self.b_torch.cpu().data.numpy()
         c = self.a_torch.cpu().data.numpy()
@@ -98,11 +98,18 @@ class FoxIE(torch.nn.Module):
         c_norm = normalize(c, axis=1)
         
         print ("count hr", flush = True)
-        hr_k = (3, 5, 10)
-        hr_result = ef.hr(
-            datas.filter,
-            datas.valid_triples[:how_many_samples],
-            a_norm, b_norm, c_norm,
-            hr_k,
-        )
-        return hr_result
+        hit1, hit3, hit10 = hr(datas.valid_filters, datas.valid_triples, a_norm, b_norm, c_norm, [1, 3, 10])
+        return (hit1, hit3, hit10)
+    
+    def get_test(self, datas):
+        a = self.a_torch.cpu().data.numpy()
+        b = self.b_torch.cpu().data.numpy()
+        c = self.a_torch.cpu().data.numpy()
+        
+        a_norm = normalize(a, axis=1)
+        b_norm = normalize(b, axis=1)
+        c_norm = normalize(c, axis=1)
+        
+        print ("count hr", flush = True)
+        hit3, hit5, hit10 = hr(datas.test_filters, datas.test_triples, a_norm, b_norm, c_norm, [1, 3, 10])
+        return (hit3, hit5, hit10)
